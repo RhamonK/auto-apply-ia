@@ -2,12 +2,14 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
+const fs = require('fs');
 const Anthropic = require('@anthropic-ai/sdk');
 
 const app = express();
-const isProd = process.env.NODE_ENV === 'production';
+const buildPath = path.join(__dirname, 'build');
+const hasBuild = fs.existsSync(buildPath);
 
-app.use(cors({ origin: isProd ? false : 'http://localhost:3000' }));
+app.use(cors({ origin: hasBuild ? false : 'http://localhost:3000' }));
 app.use(express.json());
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
@@ -114,11 +116,11 @@ Utilise ce format EXACT:
   }
 });
 
-// En production, sert le build React
-if (isProd) {
-  app.use(express.static(path.join(__dirname, 'build')));
+// Sert le build React si le dossier existe
+if (hasBuild) {
+  app.use(express.static(buildPath));
   app.get('*', (req, res) => {
-    res.sendFile(path.join(__dirname, 'build', 'index.html'));
+    res.sendFile(path.join(buildPath, 'index.html'));
   });
 }
 
