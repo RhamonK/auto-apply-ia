@@ -3,7 +3,7 @@ const express = require('express');
 const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
-const Anthropic = require('@anthropic-ai/sdk');
+const { GoogleGenerativeAI } = require('@google/generative-ai');
 
 const app = express();
 const buildPath = path.join(__dirname, 'build');
@@ -12,7 +12,7 @@ const hasBuild = fs.existsSync(buildPath);
 app.use(cors({ origin: hasBuild ? false : 'http://localhost:3000' }));
 app.use(express.json());
 
-const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
 app.get('/api/health', (_, res) => res.json({ ok: true }));
 
@@ -21,20 +21,19 @@ app.post('/api/search', async (req, res) => {
   if (!query) return res.status(400).json({ error: 'Query required' });
 
   try {
-    const response = await client.messages.create({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 4096,
-      tools: [{ type: 'web_search_20250305', name: 'web_search' }],
-      messages: [{
-        role: 'user',
-        content: `Recherche des offres d'emploi pour: "${query}".
-Utilise web_search pour trouver des offres réelles et actuelles.
-Retourne UNIQUEMENT un tableau JSON valide (sans markdown) avec jusqu'à 8 offres:
-[{"id":"1","title":"...","company":"...","location":"...","type":"...","salary":"...","tags":["..."],"url":"..."}]`
-      }]
+    const model = genAI.getGenerativeModel({
+      model: 'gemini-1.5-flash',
+      tools: [{ googleSearch: {} }],
     });
 
-    const text = response.content.find(c => c.type === 'text')?.text ?? '';
+    const result = await model.generateContent(
+      `Recherche des offres d'emploi pour: "${query}".
+Trouve des offres réelles et actuelles.
+Retourne UNIQUEMENT un tableau JSON valide (sans markdown, sans backticks) avec jusqu'à 8 offres:
+[{"id":"1","title":"...","company":"...","location":"...","type":"...","salary":"...","tags":["..."],"url":"..."}]`
+    );
+
+    const text = result.response.text();
     const match = text.match(/\[[\s\S]*\]/);
     if (match) return res.json(JSON.parse(match[0]));
     res.json([]);
@@ -96,17 +95,14 @@ Utilise ce format EXACT:
 [email, téléphone]`;
 
   try {
-    const stream = client.messages.stream({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 2048,
-      messages: [{ role: 'user', content: prompt }]
-    });
+    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+    const result = await model.generateContentStream(prompt);
 
-    stream.on('text', (text) => {
-      res.write(`data: ${JSON.stringify({ text })}\n\n`);
-    });
+    for await (const chunk of result.stream) {
+      const text = chunk.text();
+      if (text) res.write(`data: ${JSON.stringify({ text })}\n\n`);
+    }
 
-    await stream.finalMessage();
     res.write('data: [DONE]\n\n');
   } catch (err) {
     console.error('Apply error:', err.message);
@@ -116,7 +112,6 @@ Utilise ce format EXACT:
   }
 });
 
-// Sert le build React si le dossier existe
 if (hasBuild) {
   app.use(express.static(buildPath));
   app.get('*', (req, res) => {
