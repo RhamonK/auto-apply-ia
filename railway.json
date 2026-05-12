@@ -5,7 +5,6 @@
     "buildCommand": "npm install && npm run build"
   },
   "deploy": {
-    "startCommand": "npm start",
-    "healthcheckPath": "/api/health"
+    "startCommand": "npm start"
   }
 }

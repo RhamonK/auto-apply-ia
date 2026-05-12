@@ -12,7 +12,10 @@ const hasBuild = fs.existsSync(buildPath);
 app.use(cors({ origin: hasBuild ? false : 'http://localhost:3000' }));
 app.use(express.json());
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+const getGenAI = () => {
+  if (!process.env.GEMINI_API_KEY) throw new Error('GEMINI_API_KEY manquante dans les variables Railway');
+  return new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+};
 
 app.get('/api/health', (_, res) => res.json({ ok: true }));
 
@@ -21,7 +24,7 @@ app.post('/api/search', async (req, res) => {
   if (!query) return res.status(400).json({ error: 'Query required' });
 
   try {
-    const model = genAI.getGenerativeModel({
+    const model = getGenAI().getGenerativeModel({
       model: 'gemini-1.5-flash',
       tools: [{ googleSearch: {} }],
     });
@@ -95,7 +98,7 @@ Utilise ce format EXACT:
 [email, téléphone]`;
 
   try {
-    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+    const model = getGenAI().getGenerativeModel({ model: 'gemini-1.5-flash' });
     const result = await model.generateContentStream(prompt);
 
     for await (const chunk of result.stream) {
