@@ -25,20 +25,26 @@ app.post('/api/search', async (req, res) => {
 
   try {
     const model = getGenAI().getGenerativeModel({
-      model: 'gemini-1.5-flash',
+      model: 'gemini-2.0-flash',
       tools: [{ googleSearch: {} }],
     });
 
     const result = await model.generateContent(
-      `Recherche des offres d'emploi pour: "${query}".
-Trouve des offres réelles et actuelles.
-Retourne UNIQUEMENT un tableau JSON valide (sans markdown, sans backticks) avec jusqu'à 8 offres:
-[{"id":"1","title":"...","company":"...","location":"...","type":"...","salary":"...","tags":["..."],"url":"..."}]`
+      `Fais une recherche Google pour trouver des vraies offres d'emploi actuelles pour: "${query}".
+Retourne UNIQUEMENT un tableau JSON valide (sans markdown, sans backticks) avec jusqu'à 8 offres trouvées:
+[{"id":"1","title":"...","company":"...","location":"...","type":"Temps plein/partiel/contrat","salary":"...","tags":["..."],"url":"..."}]
+Si tu ne trouves pas de salaire, mets "Non précisé". Les URLs doivent être réelles.`
     );
 
     const text = result.response.text();
-    const match = text.match(/\[[\s\S]*\]/);
-    if (match) return res.json(JSON.parse(match[0]));
+    const match = text.match(/\[[\s\S]*?\]/);
+    if (match) {
+      try {
+        return res.json(JSON.parse(match[0]));
+      } catch {
+        return res.json([]);
+      }
+    }
     res.json([]);
   } catch (err) {
     console.error('Search error:', err.message);
