@@ -3,7 +3,7 @@ const express = require('express');
 const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
-const { GoogleGenerativeAI } = require('@google/generative-ai');
+const Groq = require('groq-sdk');
 
 const app = express();
 const buildPath = path.join(__dirname, 'build');
@@ -12,9 +12,9 @@ const hasBuild = fs.existsSync(buildPath);
 app.use(cors({ origin: hasBuild ? false : 'http://localhost:3000' }));
 app.use(express.json());
 
-const getGenAI = () => {
-  if (!process.env.GEMINI_API_KEY) throw new Error('GEMINI_API_KEY manquante dans les variables Railway');
-  return new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+const getGroq = () => {
+  if (!process.env.GROQ_API_KEY) throw new Error('GROQ_API_KEY manquante');
+  return new Groq({ apiKey: process.env.GROQ_API_KEY });
 };
 
 app.get('/api/health', (_, res) => res.json({ ok: true }));
@@ -24,26 +24,23 @@ app.post('/api/search', async (req, res) => {
   if (!query) return res.status(400).json({ error: 'Query required' });
 
   try {
-    const model = getGenAI().getGenerativeModel({
-      model: 'gemini-2.0-flash',
-      tools: [{ googleSearch: {} }],
+    const completion = await getGroq().chat.completions.create({
+      model: 'llama-3.3-70b-versatile',
+      messages: [{
+        role: 'user',
+        content: `Tu es un assistant de recherche d'emploi. Génère une liste réaliste de 8 offres d'emploi pour la recherche: "${query}".
+Utilise des vraies entreprises connues dans la région mentionnée.
+Retourne UNIQUEMENT un tableau JSON valide (sans markdown, sans backticks) :
+[{"id":"1","title":"...","company":"...","location":"...","type":"Temps plein/Temps partiel/Contrat","salary":"XX$/h ou Non précisé","tags":["tag1","tag2"],"url":"https://www.jobpostings.ca"}]`
+      }],
+      max_tokens: 2048,
+      temperature: 0.7,
     });
 
-    const result = await model.generateContent(
-      `Fais une recherche Google pour trouver des vraies offres d'emploi actuelles pour: "${query}".
-Retourne UNIQUEMENT un tableau JSON valide (sans markdown, sans backticks) avec jusqu'à 8 offres trouvées:
-[{"id":"1","title":"...","company":"...","location":"...","type":"Temps plein/partiel/contrat","salary":"...","tags":["..."],"url":"..."}]
-Si tu ne trouves pas de salaire, mets "Non précisé". Les URLs doivent être réelles.`
-    );
-
-    const text = result.response.text();
-    const match = text.match(/\[[\s\S]*?\]/);
+    const text = completion.choices[0]?.message?.content ?? '';
+    const match = text.match(/\[[\s\S]*\]/);
     if (match) {
-      try {
-        return res.json(JSON.parse(match[0]));
-      } catch {
-        return res.json([]);
-      }
+      try { return res.json(JSON.parse(match[0])); } catch { return res.json([]); }
     }
     res.json([]);
   } catch (err) {
@@ -101,14 +98,18 @@ Utilise ce format EXACT:
 [langues parlées]
 
 **COORDONNÉES**
-[email, téléphone]`;
+${profile.email || ''} | ${profile.phone || ''}`;
 
   try {
-    const model = getGenAI().getGenerativeModel({ model: 'gemini-1.5-flash' });
-    const result = await model.generateContentStream(prompt);
+    const stream = await getGroq().chat.completions.create({
+      model: 'llama-3.3-70b-versatile',
+      messages: [{ role: 'user', content: prompt }],
+      max_tokens: 2048,
+      stream: true,
+    });
 
-    for await (const chunk of result.stream) {
-      const text = chunk.text();
+    for await (const chunk of stream) {
+      const text = chunk.choices[0]?.delta?.content || '';
       if (text) res.write(`data: ${JSON.stringify({ text })}\n\n`);
     }
 
